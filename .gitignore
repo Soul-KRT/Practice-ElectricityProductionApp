@@ -1,0 +1,37 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# NuGet
+packages/
+*.nupkg
+project.assets.json
+project.nuget.cache
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.cache
+*.bak
+*.laccdb
+
+# ReSharper/Rider
+_ReSharper*/
+*.DotSettings.user
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
