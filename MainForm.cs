@@ -19,6 +19,7 @@ public class MainForm : Form
 
     private BindingList<ElectricityRecord> _records = new();
     private string _lastResultText = string.Empty;
+    private string _resultFileText = string.Empty;
     private bool _showChart;
 
     private DataGridView _grid = new();
@@ -58,7 +59,7 @@ public class MainForm : Form
         var fileMenu = new ToolStripMenuItem("Файл");
         fileMenu.DropDownItems.Add("Создать CSV-файл", null, (_, _) => CreateFile());
         fileMenu.DropDownItems.Add("Печать исходного CSV-файла", null, (_, _) => PrintSourceFile());
-        fileMenu.DropDownItems.Add("Сохранить результат запроса", null, (_, _) => SaveResultToFile());
+        fileMenu.DropDownItems.Add("Сохранить результирующий файл", null, (_, _) => SaveResultToFile());
         fileMenu.DropDownItems.Add("Печать результирующего файла", null, (_, _) => PrintResultFile());
         fileMenu.DropDownItems.Add("Выход", null, (_, _) => Close());
 
@@ -315,7 +316,10 @@ public class MainForm : Form
 
     private void CalculateTotals()
     {
-        WriteResult(QueryService.BuildSummary(_records));
+        _resultFileText = BuildResultFileText();
+        SaveResultText(_resultFileText);
+        WriteResult(_resultFileText + Environment.NewLine + Environment.NewLine +
+                    "Результирующий файл сформирован: " + GetResultPath());
         _showChart = true;
         _chartPanel.Invalidate();
     }
@@ -352,7 +356,28 @@ public class MainForm : Form
     {
         _showChart = true;
         _chartPanel.Invalidate();
-        WriteResult("Построена сводная графическая информация: производство электроэнергии за 2015 г. по странам.");
+        ShowChartWindow();
+        WriteResult("Построена сводная диаграмма: сравнение производства электроэнергии за 2010 и 2015 годы по странам.");
+    }
+
+    private void ShowChartWindow()
+    {
+        var form = new Form
+        {
+            Text = "Сводная диаграмма производства электроэнергии",
+            Width = 900,
+            Height = 520,
+            StartPosition = FormStartPosition.CenterParent
+        };
+
+        var panel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.White
+        };
+        panel.Paint += DrawChart;
+        form.Controls.Add(panel);
+        form.Show(this);
     }
 
     private void RecreateAccessDatabase()
@@ -405,27 +430,36 @@ public class MainForm : Form
 
     private void SaveResultToFile()
     {
-        if (string.IsNullOrWhiteSpace(_lastResultText))
+        if (string.IsNullOrWhiteSpace(_resultFileText))
         {
-            MessageBox.Show("Сначала выполните запрос или расчет.");
+            MessageBox.Show("Сначала выполните расчет итоговых показателей.");
             return;
         }
 
-        string resultPath = Path.Combine(_dataDirectory, "result.txt");
-        Directory.CreateDirectory(_dataDirectory);
-        File.WriteAllText(resultPath, _lastResultText, Encoding.UTF8);
-        MessageBox.Show("Результат сохранен: " + resultPath);
+        SaveResultText(_resultFileText);
+        MessageBox.Show("Результирующий файл сохранен: " + GetResultPath());
     }
 
     private void PrintResultFile()
     {
-        if (string.IsNullOrWhiteSpace(_lastResultText))
+        if (string.IsNullOrWhiteSpace(_resultFileText))
         {
-            MessageBox.Show("Сначала выполните запрос или расчет.");
+            MessageBox.Show("Сначала выполните расчет итоговых показателей.");
             return;
         }
 
-        PrintText("Результат запроса", _lastResultText);
+        PrintText("Результирующий файл", _resultFileText);
+    }
+
+    private string GetResultPath()
+    {
+        return Path.Combine(_dataDirectory, "result.txt");
+    }
+
+    private void SaveResultText(string text)
+    {
+        Directory.CreateDirectory(_dataDirectory);
+        File.WriteAllText(GetResultPath(), text, Encoding.UTF8);
     }
 
     private void SaveCurrentRecords()
@@ -481,6 +515,15 @@ public class MainForm : Form
         return sb.ToString();
     }
 
+    private string BuildResultFileText()
+    {
+        return "Результирующий файл по варианту 13" + Environment.NewLine +
+               "Производство электроэнергии в развитых странах мира" + Environment.NewLine +
+               Environment.NewLine +
+               BuildRecordsText(_records) + Environment.NewLine +
+               QueryService.BuildSummary(_records);
+    }
+
     private void RunAccessQuery(Func<AccessQueryResult> queryFactory)
     {
         RunAccessAction(() => queryFactory().ToDisplayText());
@@ -531,13 +574,21 @@ public class MainForm : Form
 
     private void DrawChart(object? sender, PaintEventArgs e)
     {
+        Panel panel = sender as Panel ?? _chartPanel;
         Graphics g = e.Graphics;
         g.Clear(Color.White);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-        using var titleFont = new Font("Segoe UI", 10, FontStyle.Bold);
-        using var textFont = new Font("Segoe UI", 8);
-        g.DrawString("Производство электроэнергии в 2015 г.", titleFont, Brushes.Black, 10, 8);
+        using var titleFont = new Font("Times New Roman", 11, FontStyle.Bold);
+        using var textFont = new Font("Times New Roman", 8);
+        using var smallFont = new Font("Times New Roman", 7);
+        using var blueBrush = new SolidBrush(Color.FromArgb(155, 185, 225));
+        using var orangeBrush = new SolidBrush(Color.FromArgb(230, 180, 150));
+        using var borderPen = new Pen(Color.FromArgb(70, 70, 70));
+
+        string title = "Сводная диаграмма производства электроэнергии";
+        SizeF titleSize = g.MeasureString(title, titleFont);
+        g.DrawString(title, titleFont, Brushes.Black, (panel.Width - titleSize.Width) / 2, 8);
 
         if (!_showChart || _records.Count == 0)
         {
@@ -545,29 +596,53 @@ public class MainForm : Form
             return;
         }
 
-        int plotLeft = 42;
-        int plotTop = 38;
-        int plotWidth = Math.Max(80, _chartPanel.Width - 65);
-        int plotHeight = Math.Max(60, _chartPanel.Height - 80);
-        decimal max = _records.Max(record => record.Year2015);
+        int legendLeft = Math.Max(10, panel.Width - 115);
+        g.FillRectangle(blueBrush, legendLeft, 36, 24, 14);
+        g.DrawRectangle(borderPen, legendLeft, 36, 24, 14);
+        g.DrawString("2010", textFont, Brushes.Black, legendLeft + 32, 34);
+        g.FillRectangle(orangeBrush, legendLeft, 58, 24, 14);
+        g.DrawRectangle(borderPen, legendLeft, 58, 24, 14);
+        g.DrawString("2015", textFont, Brushes.Black, legendLeft + 32, 56);
+
+        int plotLeft = 35;
+        int plotTop = 72;
+        int plotWidth = Math.Max(80, panel.Width - 55);
+        int plotHeight = Math.Max(60, panel.Height - 108);
+        decimal max = _records.Max(record => Math.Max(record.Year2010, record.Year2015));
         if (max <= 0) max = 1;
 
-        g.DrawLine(Pens.Black, plotLeft, plotTop, plotLeft, plotTop + plotHeight);
-        g.DrawLine(Pens.Black, plotLeft, plotTop + plotHeight, plotLeft + plotWidth, plotTop + plotHeight);
+        using var axisPen = new Pen(Color.Black, 2);
+        g.DrawLine(axisPen, plotLeft, plotTop, plotLeft, plotTop + plotHeight);
+        g.DrawLine(axisPen, plotLeft, plotTop + plotHeight, plotLeft + plotWidth, plotTop + plotHeight);
 
-        int barWidth = Math.Max(14, plotWidth / Math.Max(1, _records.Count) - 8);
+        int groupWidth = plotWidth / Math.Max(1, _records.Count);
+        int barWidth = Math.Max(8, Math.Min(22, (groupWidth - 12) / 2));
         for (int i = 0; i < _records.Count; i++)
         {
             ElectricityRecord record = _records[i];
-            int height = (int)(plotHeight * record.Year2015 / max);
-            int x = plotLeft + 6 + i * (barWidth + 8);
-            int y = plotTop + plotHeight - height;
-            using var brush = new SolidBrush(Color.FromArgb(90, 130, 180));
-            g.FillRectangle(brush, x, y, barWidth, height);
-            g.DrawRectangle(Pens.SteelBlue, x, y, barWidth, height);
-            g.DrawString(record.Year2015.ToString("0.#", CultureInfo.InvariantCulture), textFont, Brushes.Black, x - 2, y - 16);
-            g.DrawString(record.Country, textFont, Brushes.Black, x - 8, plotTop + plotHeight + 4);
+            int groupLeft = plotLeft + 6 + i * groupWidth;
+            int x2010 = groupLeft;
+            int x2015 = groupLeft + barWidth + 4;
+
+            DrawBar(g, record.Year2010, max, x2010, plotTop, plotHeight, barWidth, blueBrush, borderPen, smallFont);
+            DrawBar(g, record.Year2015, max, x2015, plotTop, plotHeight, barWidth, orangeBrush, borderPen, smallFont);
+
+            SizeF countrySize = g.MeasureString(record.Country, textFont);
+            float countryX = groupLeft + barWidth - countrySize.Width / 2;
+            g.DrawString(record.Country, textFont, Brushes.Black, countryX, plotTop + plotHeight + 4);
         }
+    }
+
+    private static void DrawBar(Graphics g, decimal value, decimal max, int x, int plotTop, int plotHeight, int width, Brush brush, Pen borderPen, Font font)
+    {
+        int height = (int)(plotHeight * value / max);
+        int y = plotTop + plotHeight - height;
+        g.FillRectangle(brush, x, y, width, height);
+        g.DrawRectangle(borderPen, x, y, width, height);
+
+        string text = value.ToString("0.#", CultureInfo.InvariantCulture);
+        SizeF textSize = g.MeasureString(text, font);
+        g.DrawString(text, font, Brushes.Black, x + width / 2f - textSize.Width / 2f, y - textSize.Height - 1);
     }
 
     private static void AddLabel(Control parent, string text, int left, int top)
